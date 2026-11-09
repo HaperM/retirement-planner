@@ -1,0 +1,1588 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบจำลองแผนการเงินหลังเกษียณ & ทดสอบความเสี่ยง (Monte Carlo & SORR)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Prompt & Sarabun -->
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Prompt', 'Sarabun', 'sans-serif'],
+                        body: ['Sarabun', 'sans-serif'],
+                    },
+                    colors: {
+                        navy: {
+                            50: '#f0f5fa',
+                            100: '#e1ebf5',
+                            600: '#1e4b7a',
+                            700: '#163a5f',
+                            800: '#0f2942',
+                            900: '#091929',
+                        },
+                        mint: {
+                            50: '#ecfdf5',
+                            100: '#d1fae5',
+                            500: '#10b981',
+                            600: '#059669',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Prompt', sans-serif;
+            background-color: #f4f7fb;
+            color: #1e293b;
+        }
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        input[type="range"] {
+            accent-color: #163a5f;
+        }
+        .card-shadow {
+            box-shadow: 0 4px 20px -2px rgba(15, 41, 66, 0.08);
+        }
+        .header-gradient {
+            background: linear-gradient(135deg, #163a5f 0%, #255c99 100%);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Top Hero Banner -->
+    <header class="bg-white border-b border-slate-200 shadow-sm relative overflow-hidden">
+        <div class="w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-5">
+            <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div class="flex items-center gap-4">
+                    <div class="w-16 h-16 rounded-2xl header-gradient flex items-center justify-center text-white shadow-md shrink-0">
+                        <i class="fa-solid fa-user-shield text-3xl"></i>
+                    </div>
+                    <div>
+                        <div class="inline-flex items-center gap-2 px-3 py-0.5 rounded-full text-xs font-semibold bg-navy-700 text-white mb-1">
+                            <span data-i18n="badgeTitle">แผนการเงินหลังเกษียณแบบ Interactive</span>
+                        </div>
+                        <h1 class="text-2xl sm:text-3xl font-bold text-navy-800 tracking-tight">
+                            <span id="headerClientNameDisplay">ผู้วางแผนเกษียณ</span> <span class="text-lg sm:text-xl font-normal text-slate-600">“<span data-i18n="headerPlanFor">วางแผนเกษียณให้พอใช้ไปอีก</span> <span id="headerYearsText" class="font-semibold text-navy-700">30</span> <span data-i18n="yearsUnit">ปี</span>”</span>
+                        </h1>
+                        <p id="headerQuoteDisplay" class="text-xs sm:text-sm text-slate-500 mt-0.5 italic">
+                            “ผมดูแลคนรอบตัวมาตลอด ตอนนี้อยากมีแผนเพื่อดูแลตัวเองบ้าง ให้ใช้ชีวิตหลังเกษียณได้อย่างสบายใจ”
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Simulation Mode Switcher & Language Selector -->
+                <div class="flex flex-wrap items-center gap-3 self-stretch md:self-auto justify-end">
+                    <!-- Language Selector -->
+                    <div class="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200">
+                        <button id="langThBtn" onclick="setLanguage('th')" class="px-2.5 py-1 text-xs font-bold rounded bg-navy-700 text-white transition">TH</button>
+                        <button id="langEnBtn" onclick="setLanguage('en')" class="px-2.5 py-1 text-xs font-bold rounded text-slate-700 hover:text-navy-800 transition">EN</button>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                        <div class="text-xs text-slate-600 mr-1">
+                            <span class="font-semibold block text-navy-800"><i class="fa-solid fa-sliders mr-1"></i><span data-i18n="simBaseLabel">ฐานเงินที่ใช้จำลองกราฟ & ความเสี่ยง:</span></span>
+                            <span data-i18n="simBaseSub">เลือกดูตามเงินเก็บที่มีจริง หรือเกณฑ์เงินขั้นต่ำ</span>
+                        </div>
+                        <div class="inline-flex rounded-lg bg-slate-200 p-1">
+                            <button id="modeActualBtn" onclick="setSimMode('actual')" class="px-3 py-1.5 text-xs font-semibold rounded-md transition-all bg-navy-700 text-white shadow-sm">
+                                <span data-i18n="btnActualSavings">ใช้เงินเก็บที่มี (5.00 ลบ.)</span>
+                            </button>
+                            <button id="modeBaseBtn" onclick="setSimMode('base')" class="px-3 py-1.5 text-xs font-semibold rounded-md transition-all text-slate-700 hover:text-navy-800">
+                                <span data-i18n="btnBaseRisk">ใช้เกณฑ์ความเสี่ยง AWW RIS</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="flex-grow w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+            <!-- LEFT SIDEBAR: Inputs & Assumptions -->
+            <aside class="lg:col-span-4 space-y-5">
+                
+                <!-- Card 1: ข้อมูลผู้วางแผน -->
+                <div class="bg-white rounded-2xl card-shadow border border-slate-100 overflow-hidden">
+                    <div class="header-gradient px-5 py-3 flex items-center justify-between">
+                        <h2 class="text-white font-semibold text-base flex items-center gap-2">
+                            <i class="fa-solid fa-id-card"></i> <span id="sidebarProfileHeader" data-i18n="cardProfileHeader">ข้อมูลของผู้วางแผน</span>
+                        </h2>
+                        <button onclick="resetToDefaultValues()" class="text-xs bg-white/20 hover:bg-white/30 text-white px-2.5 py-1 rounded-lg transition flex items-center gap-1">
+                            <i class="fa-solid fa-rotate-left"></i> <span data-i18n="btnReset">ค่าเริ่มต้น</span>
+                        </button>
+                    </div>
+
+                    <div class="p-5 space-y-4">
+                        <div class="bg-navy-50/60 p-3.5 rounded-xl border border-navy-100 space-y-2.5">
+                            <div>
+                                <label for="clientNameInput" class="block text-xs font-semibold text-navy-800 mb-1">
+                                    <i class="fa-solid fa-user-pen text-navy-600 mr-1"></i><span data-i18n="labelClientName">ชื่อผู้วางแผนเกษียณ</span>
+                                </label>
+                                <div class="relative">
+                                    <input type="text" id="clientNameInput" value="" placeholder="ระบุชื่อของคุณ (เช่น คุณสมชาย, John Doe)..." class="w-full bg-white px-3 py-2 pr-8 rounded-lg border border-slate-300 text-sm font-semibold text-navy-800 focus:ring-2 focus:ring-navy-600 focus:outline-none" oninput="updateClientNameDisplay()">
+                                    <button type="button" id="clearNameBtn" onclick="clearClientName()" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs">
+                                        <i class="fa-solid fa-circle-xmark"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <label for="clientQuoteInput" class="block text-[11px] font-medium text-slate-600 mb-1">
+                                    <i class="fa-solid fa-quote-left text-navy-600 mr-1"></i><span data-i18n="labelClientQuote">เป้าหมาย/ความตั้งใจหลังเกษียณ</span>
+                                </label>
+                                <input type="text" id="clientQuoteInput" value="ผมดูแลคนรอบตัวมาตลอด ตอนนี้อยากมีแผนเพื่อดูแลตัวเองบ้าง ให้ใช้ชีวิตหลังเกษียณได้อย่างสบายใจ" class="w-full bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-700 focus:ring-2 focus:ring-navy-600 focus:outline-none" oninput="updateClientNameDisplay()">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+                                <label class="block text-xs text-slate-500 font-medium mb-1" data-i18n="labelCurrentAge">อายุปัจจุบัน (ปี)</label>
+                                <input type="number" id="currentAge" value="60" min="40" max="85" class="w-full bg-transparent text-xl font-bold text-navy-800 focus:outline-none" oninput="handleInputChange()" onchange="handleInputChange()">
+                            </div>
+                            <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+                                <label class="block text-xs text-slate-500 font-medium mb-1" data-i18n="labelTargetAge">วางแผนถึงอายุ</label>
+                                <input type="number" id="targetAge" value="90" min="65" max="105" class="w-full bg-transparent text-xl font-bold text-navy-800 focus:outline-none" oninput="handleInputChange()" onchange="handleInputChange()">
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80">
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                                    <i class="fa-solid fa-sack-dollar text-navy-600 text-sm"></i> <span data-i18n="labelInitialSavings">เงินเกษียณตั้งต้นที่มี</span>
+                                </label>
+                                <span class="text-[11px] text-slate-400" data-i18n="unitBaht">บาท</span>
+                            </div>
+                            <input type="number" id="initialSavings" value="5000000" step="50000" min="0" class="w-full bg-white px-3 py-2 rounded-lg border border-slate-300 text-lg font-bold text-navy-800 focus:outline-none mb-2" oninput="syncSliders('initialSavings')" onchange="handleInputChange()">
+                            <input type="range" id="initialSavingsSlider" min="500000" max="15000000" step="50000" value="5000000" class="w-full h-1.5 bg-slate-200 rounded-lg cursor-pointer" oninput="syncInputs('initialSavings')">
+                        </div>
+
+                        <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80">
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                                    <i class="fa-solid fa-coins text-navy-600 text-sm"></i> <span data-i18n="labelPension">เงินบำนาญประกันสังคม</span>
+                                </label>
+                                <span class="text-[11px] text-emerald-600 font-medium" data-i18n="unitBahtMonth">บ./เดือน</span>
+                            </div>
+                            <input type="number" id="monthlyPension" value="6375" step="125" min="0" class="w-full bg-white px-3 py-2 rounded-lg border border-slate-300 text-lg font-bold text-navy-800 focus:outline-none mb-2" oninput="syncSliders('monthlyPension')" onchange="handleInputChange()">
+                            <input type="range" id="monthlyPensionSlider" min="0" max="30000" step="125" value="6375" class="w-full h-1.5 bg-slate-200 rounded-lg cursor-pointer" oninput="syncInputs('monthlyPension')">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card 1.5: รายได้เสริม & ภาษีขั้นบันได -->
+                <div class="bg-white rounded-2xl card-shadow border border-slate-100 overflow-hidden">
+                    <div class="header-gradient px-5 py-3 flex items-center justify-between">
+                        <h2 class="text-white font-semibold text-sm sm:text-base flex items-center gap-2">
+                            <i class="fa-solid fa-building-columns"></i> <span data-i18n="cardTaxHeader">รายได้เสริม & ภาษีขั้นบันได</span>
+                        </h2>
+                        <label class="inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="enableTaxModule" class="sr-only peer" onchange="toggleTaxModuleUI()">
+                            <div class="w-9 h-5 bg-white/30 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all relative peer-checked:bg-emerald-400"></div>
+                            <span id="taxModuleStatusBadge" class="ml-2 text-xs font-semibold text-white" data-i18n="badgeOff">ปิดอยู่</span>
+                        </label>
+                    </div>
+
+                    <div class="p-4 space-y-3.5">
+                        <div>
+                            <span class="text-[11px] font-semibold text-slate-500 block mb-1.5" data-i18n="labelPresets">ตัวอย่างรูปแบบรายได้เสริม & ภาษี:</span>
+                            <div class="grid grid-cols-3 gap-1.5">
+                                <button type="button" onclick="applyTaxPreset('none')" id="presetBtnNone" class="px-2 py-1.5 rounded-lg text-[11px] font-semibold border border-navy-600 bg-navy-700 text-white transition text-center" data-i18n="presetNone">เฉพาะบำนาญ</button>
+                                <button type="button" onclick="applyTaxPreset('rental')" id="presetBtnRental" class="px-2 py-1.5 rounded-lg text-[11px] font-semibold border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 transition text-center" data-i18n="presetRental">คอนโดให้เช่า</button>
+                                <button type="button" onclick="applyTaxPreset('combo')" id="presetBtnCombo" class="px-2 py-1.5 rounded-lg text-[11px] font-semibold border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 transition text-center" data-i18n="presetCombo">ปันผล+ค่าเช่า</button>
+                            </div>
+                        </div>
+
+                        <div id="taxModuleDisabledHint" class="bg-slate-50 border border-dashed border-slate-200 rounded-xl p-3 text-xs text-slate-500 leading-relaxed">
+                            <i class="fa-solid fa-circle-info text-navy-600 mr-1"></i> <span data-i18n="taxHintDisabled">เปิดใช้งานเพื่อจำลองค่าเช่าอสังหาฯ และเงินปันผลหุ้น พร้อมเครดิตภาษี</span>
+                        </div>
+
+                        <div id="taxModuleControls" class="hidden space-y-3.5">
+                            <div class="bg-sky-50/60 p-3.5 rounded-xl border border-sky-100 space-y-2.5">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs font-bold text-navy-800" data-i18n="rentalTitle"><i class="fa-solid fa-building text-sky-600"></i> 1. ค่าเช่าอสังหาฯ (ม.40(5))</span>
+                                    <span id="grossRentalYearLabel" class="text-[11px] font-semibold text-sky-800 bg-sky-100 px-2 py-0.5 rounded">0 บ./ปี</span>
+                                </div>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-[11px] text-slate-600 mb-1" data-i18n="labelRentalMonthly">ค่าเช่ารับ (บ./ด.)</label>
+                                        <input type="number" id="rentalMonthly" value="0" step="1000" min="0" class="w-full bg-white px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm font-bold text-navy-800 focus:outline-none" oninput="handleInputChange()" onchange="handleInputChange()">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] text-slate-600 mb-1" data-i18n="labelRentalGrowth">ขึ้นค่าเช่า (%/ปี)</label>
+                                        <input type="number" id="rentalGrowth" value="0.0" step="0.5" min="0" max="10" class="w-full bg-white px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm font-bold text-navy-800 focus:outline-none" oninput="handleInputChange()" onchange="handleInputChange()">
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-2 gap-2 items-center pt-1">
+                                    <div>
+                                        <label class="block text-[11px] text-slate-600 mb-1" data-i18n="labelRentalExpPct">หักค่าใช้จ่ายภาษี (%)</label>
+                                        <select id="rentalExpensePct" class="w-full bg-white px-2 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-navy-800 focus:outline-none" onchange="handleInputChange()">
+                                            <option value="30" selected data-i18n="optRentExp30">หักเหมา 30% (บ้าน/คอนโด)</option>
+                                            <option value="20" data-i18n="optRentExp20">หักเหมา 20% (ที่ดินเกษตร)</option>
+                                            <option value="15" data-i18n="optRentExp15">หักเหมา 15% (ที่ดินอื่นๆ)</option>
+                                            <option value="50" data-i18n="optRentExp50">หักตามจริง (สมมติ 50%)</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] text-slate-600 mb-1" data-i18n="labelRentalMaintPct">ซ่อมบำรุง/ภาษีที่ดิน (%)</label>
+                                        <input type="number" id="rentalActualCostPct" value="5" step="1" min="0" max="80" class="w-full bg-white px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-bold text-navy-800 focus:outline-none" oninput="handleInputChange()" onchange="handleInputChange()">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="bg-indigo-50/60 p-3.5 rounded-xl border border-indigo-100 space-y-2.5">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs font-bold text-navy-800" data-i18n="dividendTitle"><i class="fa-solid fa-chart-pie text-indigo-600"></i> 2. เงินปันผล (ม.40(4)(ข))</span>
+                                    <span id="grossDividendMonthLabel" class="text-[11px] font-semibold text-indigo-800 bg-indigo-100 px-2 py-0.5 rounded">0 บ./ด.</span>
+                                </div>
+
+                                <div class="bg-white p-2.5 rounded-xl border border-indigo-200/80 space-y-2 shadow-sm">
+                                    <label class="block text-[11px] font-bold text-indigo-950" data-i18n="divSourceLabel">ที่มาของเงินปันผล (ป้องกันการนับซ้ำ):</label>
+                                    <div class="grid grid-cols-1 gap-1.5">
+                                        <label id="divOptIncludedCard" class="flex items-start gap-2 p-2 rounded-lg border border-indigo-600 bg-indigo-50/70 cursor-pointer transition">
+                                            <input type="radio" name="dividendSourceMode" id="divSourceIncluded" value="included" checked class="mt-0.5" onchange="handleDividendSourceChange()">
+                                            <div class="text-[11px] leading-snug">
+                                                <span class="font-bold text-navy-800 block" data-i18n="divOptA">Option A: รวมในผลตอบแทนพอร์ตแล้ว (ไม่นับซ้ำ)</span>
+                                                <span class="text-slate-600 text-[10px]" data-i18n="divOptASub">นำเฉพาะเครดิตภาษี/ภาษีปันผลมาปรับกระแสเงินสด ไม่บวกเงินต้นปันผลซ้ำ</span>
+                                            </div>
+                                        </label>
+                                        <label id="divOptSeparateCard" class="flex items-start gap-2 p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer transition">
+                                            <input type="radio" name="dividendSourceMode" id="divSourceSeparate" value="separate" class="mt-0.5" onchange="handleDividendSourceChange()">
+                                            <div class="text-[11px] leading-snug">
+                                                <span class="font-bold text-navy-800 block" data-i18n="divOptB">Option B: พอร์ตปันผลแยกต่างหาก (บวกเพิ่ม)</span>
+                                                <span class="text-slate-600 text-[10px]" data-i18n="divOptBSub">นำเงินปันผลสุทธิหลังภาษีทั้งก้อนมาช่วยลดการถอนพอร์ตหลัก</span>
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-[11px] text-slate-600 mb-1" data-i18n="labelDivAnnual">เงินปันผลก่อนภาษี (บ./ปี)</label>
+                                        <input type="number" id="dividendAnnual" value="0" step="10000" min="0" class="w-full bg-white px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm font-bold text-navy-800 focus:outline-none" oninput="handleInputChange()" onchange="handleInputChange()">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] text-slate-600 mb-1" data-i18n="labelDivGrowth">เติบโต (%/ปี)</label>
+                                        <input type="number" id="dividendGrowth" value="2.0" step="0.5" min="0" max="10" class="w-full bg-white px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm font-bold text-navy-800 focus:outline-none" oninput="handleInputChange()" onchange="handleInputChange()">
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label class="block text-[11px] text-slate-600 mb-1" data-i18n="labelTaxMethod">วิธีคำนวณภาษี</label>
+                                    <select id="dividendTaxMethod" class="w-full bg-white px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-navy-800 focus:outline-none" onchange="handleInputChange()">
+                                        <option value="credit" data-i18n="optTaxCredit">ยื่นรวมขั้นบันได + เครดิตภาษีปันผล (ม.47 ทวิ)</option>
+                                        <option value="final" data-i18n="optTaxFinal">หัก ณ ที่จ่าย 10% (Final Tax)</option>
+                                        <option value="progressive_no_credit" data-i18n="optTaxNoCredit">ยื่นรวมขั้นบันได (ไม่มีเครดิต)</option>
+                                    </select>
+                                </div>
+
+                                <div id="corpTaxRateRow">
+                                    <label class="block text-[11px] text-slate-600 mb-1" data-i18n="labelCorpTaxRate">อัตราภาษีนิติบุคคลของหุ้น (เครดิตภาษี)</label>
+                                    <select id="dividendCorpTaxRate" class="w-full bg-white px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-indigo-800 focus:outline-none" onchange="handleInputChange()">
+                                        <option value="20" selected data-i18n="optCorp20">20% — เครดิตภาษี 20/80 (25%)</option>
+                                        <option value="15" data-i18n="optCorp15">15% — เครดิตภาษี 15/85 (17.65%)</option>
+                                        <option value="10" data-i18n="optCorp10">10% — เครดิตภาษี 10/90 (11.11%)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-2">
+                                <span class="text-xs font-bold text-navy-800 block"><i class="fa-solid fa-user-check text-emerald-600 mr-1"></i> <span data-i18n="seniorTitle">3. สิทธิผู้สูงอายุ & ลดหย่อน</span></span>
+                                <label class="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                                    <input type="checkbox" id="useSeniorExemption" checked class="rounded text-navy-700 focus:ring-0" onchange="handleInputChange()">
+                                    <span data-i18n="seniorCheckbox">ใช้สิทธิผู้สูงอายุ (อายุ ≥ 65 ปี ยกเว้น 190,000 บ.)</span>
+                                </label>
+                                <div class="flex items-center justify-between gap-2 pt-1">
+                                    <label class="text-[11px] text-slate-600" data-i18n="labelExtraDeduct">ลดหย่อนอื่นๆ เพิ่มเติม (นอกเหนือส่วนตัว 60,000):</label>
+                                    <input type="number" id="extraDeductions" value="0" step="5000" min="0" class="w-28 bg-white px-2 py-1 rounded border border-slate-300 text-xs font-bold text-navy-800 text-right focus:outline-none" oninput="handleInputChange()" onchange="handleInputChange()">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card 2: สมมติฐานในการวางแผน -->
+                <div class="bg-white rounded-2xl card-shadow border border-slate-100 overflow-hidden">
+                    <div class="header-gradient px-5 py-3 flex items-center justify-between">
+                        <h2 class="text-white font-semibold text-base flex items-center gap-2">
+                            <i class="fa-solid fa-chart-line"></i> <span data-i18n="cardAssumptionsHeader">สมมติฐานในการวางแผน</span>
+                        </h2>
+                        <span id="planDurationBadge" class="text-xs bg-white/20 text-white px-2.5 py-0.5 rounded-full">30 <span data-i18n="yearsUnit">ปี</span></span>
+                    </div>
+
+                    <div class="p-5 space-y-4">
+                        <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80">
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                                    <i class="fa-solid fa-wallet text-navy-600"></i> <span data-i18n="labelExpense">ค่าใช้จ่ายพื้นฐาน</span>
+                                </label>
+                                <span id="annualExpenseLabel" class="text-xs font-semibold text-navy-700 bg-navy-50 px-2 py-0.5 rounded">(1.68 แสนบาท/ปี)</span>
+                            </div>
+                            <div class="flex items-center gap-2 mb-2">
+                                <input type="number" id="monthlyExpense" value="14000" step="500" min="1000" class="w-full bg-white px-3 py-2 rounded-lg border border-slate-300 text-lg font-bold text-navy-800 focus:outline-none" oninput="syncSliders('monthlyExpense')" onchange="handleInputChange()">
+                                <span class="text-xs text-slate-500 shrink-0" data-i18n="unitBahtMonth">บ./เดือน</span>
+                            </div>
+                            <input type="range" id="monthlyExpenseSlider" min="5000" max="100000" step="500" value="14000" class="w-full h-1.5 bg-slate-200 rounded-lg cursor-pointer" oninput="syncInputs('monthlyExpense')">
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+                                <label class="block text-xs font-semibold text-slate-700 mb-1" data-i18n="labelReturn">ผลตอบแทนพอร์ต</label>
+                                <div class="flex items-center gap-1">
+                                    <input type="number" id="expectedReturn" value="4.8" step="0.1" min="0" max="15" class="w-full bg-white px-2.5 py-1.5 rounded-lg border border-slate-300 text-base font-bold text-navy-800 focus:outline-none" oninput="handleInputChange()" onchange="handleInputChange()">
+                                    <span class="text-xs font-semibold text-slate-500">%</span>
+                                </div>
+                            </div>
+                            <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+                                <label class="block text-xs font-semibold text-slate-700 mb-1" data-i18n="labelInflation">เงินเฟ้อ</label>
+                                <div class="flex items-center gap-1">
+                                    <input type="number" id="inflationRate" value="3.0" step="0.1" min="0" max="10" class="w-full bg-white px-2.5 py-1.5 rounded-lg border border-slate-300 text-base font-bold text-navy-800 focus:outline-none" oninput="handleInputChange()" onchange="handleInputChange()">
+                                    <span class="text-xs font-semibold text-slate-500">%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80">
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="text-xs font-semibold text-slate-700" data-i18n="labelVolatility">ความผันผวนพอร์ต (Volatility SD)</label>
+                                <span id="volatilityValueText" class="text-xs font-bold text-indigo-700">6.0% <span data-i18n="perYear">ต่อปี</span></span>
+                            </div>
+                            <input type="range" id="volatility" min="1.0" max="18.0" step="0.1" value="6.0" class="w-full h-1.5 bg-slate-200 rounded-lg cursor-pointer" oninput="handleInputChange()">
+                        </div>
+
+                        <button onclick="runFullSimulation(true)" class="w-full py-2.5 px-4 rounded-xl bg-navy-700 hover:bg-navy-800 text-white font-semibold text-sm shadow transition flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-dice"></i> <span data-i18n="btnMonteCarlo">สุ่มจำลอง Monte Carlo ใหม่ (5,000 Paths)</span>
+                        </button>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- RIGHT MAIN AREA: Results & Charts (8 Columns on Desktop) -->
+            <section class="lg:col-span-8 space-y-5">
+
+                <!-- 1. TOP SUMMARY BANNER -->
+                <div class="bg-white rounded-2xl card-shadow border border-slate-100 overflow-hidden">
+                    <div class="header-gradient px-5 py-3 flex flex-wrap items-center justify-between gap-2">
+                        <h2 class="text-white font-semibold text-base flex items-center gap-2">
+                            <i class="fa-solid fa-calculator"></i> <span data-i18n="cardBasePlanHeader">ผลการคำนวณค่าใช้จ่ายพื้นฐานจาก AWW RIS (Base Plan)</span>
+                        </h2>
+                    </div>
+
+                    <div class="p-5 grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                        <div class="md:col-span-5 border-b md:border-b-0 md:border-r border-slate-200 pb-4 md:pb-0 md:pr-4">
+                            <p class="text-sm font-semibold text-slate-700" data-i18n="reqCapTitle">เงินที่ต้องใช้สำหรับค่าใช้จ่ายพื้นฐาน</p>
+                            <p id="basePlanSubtext" class="text-xs text-slate-500 mb-2">(ที่คำนึงถึงเงินเฟ้อ 3.0% และผลตอบแทน 4.8%)</p>
+                            <div class="flex items-baseline gap-2">
+                                <span id="requiredCapitalText" class="text-3xl sm:text-4xl font-extrabold text-navy-700">3.96</span>
+                                <span class="text-xl font-bold text-navy-700" data-i18n="unitMillionBaht">ล้านบาท</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-1">
+                                <span data-i18n="pensionDeduct">หักบำนาญ</span> <span id="pensionSummaryText">6,375</span> <span data-i18n="unitBahtMonth">บ./เดือน</span>
+                            </p>
+                        </div>
+
+                        <div class="md:col-span-3 flex items-center gap-3.5 justify-start md:justify-center">
+                            <div class="w-12 h-12 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-500 text-2xl shrink-0">
+                                <i class="fa-solid fa-coins"></i>
+                            </div>
+                            <div>
+                                <p id="currentSavingsCardLabel" class="text-xs text-slate-500 font-medium" data-i18n="currentSavingsLabel">เงินเก็บปัจจุบันที่มี</p>
+                                <p class="text-xl font-bold text-navy-800"><span id="currentSavingsCardText">5.00</span> <span class="text-sm font-semibold" data-i18n="unitMillionBaht">ล้านบาท</span></p>
+                            </div>
+                        </div>
+
+                        <div class="md:col-span-4">
+                            <div id="surplusStatusBox" class="bg-mint-50 border border-mint-100 rounded-xl p-3.5 flex items-center gap-3.5">
+                                <div id="surplusIcon" class="w-10 h-10 rounded-full bg-mint-500 text-white flex items-center justify-center text-lg shrink-0 shadow-sm">
+                                    <i class="fa-solid fa-check"></i>
+                                </div>
+                                <div>
+                                    <p id="surplusLabel" class="text-xs font-semibold text-slate-600" data-i18n="surplusLabel">มากกว่าเงินที่ต้องใช้</p>
+                                    <p id="surplusAmountText" class="text-2xl font-extrabold text-mint-600">1.04 <span class="text-base font-bold" data-i18n="unitMillionBaht">ล้านบาท</span></p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. MAIN INTERACTIVE CHART -->
+                <div class="bg-white rounded-2xl card-shadow border border-slate-100 overflow-hidden">
+                    <div class="header-gradient px-5 py-3 flex flex-wrap items-center justify-between gap-2">
+                        <h2 class="text-white font-semibold text-base" data-i18n="chartHeader">
+                            <i class="fa-solid fa-chart-area mr-1"></i> กราฟประมาณการเงินคงเหลือ (Base Plan & ช่วงความไม่แน่นอน)
+                        </h2>
+                        <label class="inline-flex items-center gap-1.5 text-xs text-white cursor-pointer bg-white/15 px-2.5 py-1 rounded-lg">
+                            <input type="checkbox" id="showSorrLineCheckbox" checked onchange="updateMainChart()" class="rounded text-navy-700">
+                            <span data-i18n="showSorrLabel">แสดงเส้นตลาดแย่ 5 ปีแรก (SORR)</span>
+                        </label>
+                    </div>
+
+                    <div class="p-5">
+                        <div class="flex flex-wrap items-center justify-between gap-2 mb-3 text-xs text-slate-600">
+                            <span id="chartBasisNotice" class="font-medium text-navy-700 bg-navy-50 px-2.5 py-1 rounded-md border border-navy-100">
+                                <i class="fa-solid fa-circle-info mr-1"></i> <span data-i18n="chartBasisText">กราฟแสดงพอร์ตตั้งต้น:</span> <strong>5.00 <span data-i18n="unitMillionBaht">ล้านบาท</span></strong>
+                            </span>
+                        </div>
+                        <div class="relative w-full h-72 sm:h-80">
+                            <canvas id="retirementChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2.5 TAX ANALYSIS CARD -->
+                <div id="taxAnalysisCard" class="bg-white rounded-2xl card-shadow border border-slate-100 overflow-hidden">
+                    <div class="header-gradient px-5 py-3 flex flex-wrap items-center justify-between gap-2">
+                        <h2 class="text-white font-semibold text-base flex items-center gap-2">
+                            <i class="fa-solid fa-scale-balanced"></i> <span data-i18n="taxCardHeader">การคำนวณภาษีเงินได้บุคคลธรรมดาแบบขั้นบันได</span>
+                        </h2>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-blue-100" data-i18n="inspectAge">เลือกดูที่อายุ:</span>
+                            <select id="taxInspectAgeSelect" class="bg-white text-navy-800 text-xs font-bold px-2.5 py-1 rounded-lg focus:outline-none" onchange="renderTaxBreakdownForSelectedAge()">
+                                <option value="60">อายุ 60 ปี</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="p-5 space-y-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                            <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                                <span class="text-[11px] text-slate-500 block" data-i18n="taxCol1">รายได้ค่าเช่า+ปันผล (ก่อนภาษี)</span>
+                                <span id="taxCardGrossIncome" class="text-lg font-extrabold text-navy-800">0 บ./ปี</span>
+                            </div>
+                            <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                                <span class="text-[11px] text-slate-500 block" data-i18n="taxCol2">เงินได้สุทธิ (ยื่นภาษี)</span>
+                                <span id="taxCardNetTaxable" class="text-lg font-extrabold text-navy-800">0 บ./ปี</span>
+                            </div>
+                            <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                                <span id="taxCardSettlementLabel" class="text-[11px] text-slate-500 block" data-i18n="taxCol3">ภาระภาษี / เงินคืน</span>
+                                <span id="taxCardSettlementValue" class="text-lg font-extrabold text-navy-800">0 บ./ปี</span>
+                            </div>
+                            <div class="bg-mint-50 p-3.5 rounded-xl border border-mint-100">
+                                <span class="text-[11px] text-emerald-800 font-semibold block" data-i18n="taxCol4">เงินสดช่วยลดการถอนพอร์ต</span>
+                                <span id="taxCardNetCashflow" class="text-lg font-extrabold text-emerald-600">0 บ./ปี</span>
+                            </div>
+                        </div>
+
+                        <div id="dividendFormulaBanner" class="bg-indigo-50/70 border border-indigo-200 rounded-xl p-3.5 text-xs space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span id="formulaModeBadge" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-700 text-white">Option A</span>
+                                <button type="button" onclick="toggleDividendSourceModeQuick()" class="text-[11px] font-semibold text-indigo-700 bg-white px-2.5 py-1 rounded-lg border border-indigo-200" data-i18n="switchOption">สลับ Option A / B</button>
+                            </div>
+                            <div id="formulaMathExplanation" class="text-[11px] text-slate-700"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. BOTTOM RISK ANALYSIS CARDS -->
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+                    <div class="md:col-span-4 bg-white rounded-2xl card-shadow border border-slate-100 overflow-hidden flex flex-col">
+                        <div class="header-gradient px-4 py-2.5">
+                            <h3 class="text-white font-semibold text-sm" data-i18n="riskCardHeader">ผลการทดสอบความเสี่ยง</h3>
+                            <p class="text-[11px] text-blue-100">(Monte Carlo 5,000 paths)</p>
+                        </div>
+                        <div class="p-4 flex-grow flex flex-col justify-between">
+                            <div class="flex items-center gap-3 my-auto">
+                                <div class="relative w-28 h-28 shrink-0">
+                                    <canvas id="mcDonutChart"></canvas>
+                                    <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                        <span id="mcSuccessRateText" class="text-lg font-extrabold text-navy-800">64.7%</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <p class="text-sm font-bold text-navy-800 mb-1"><span data-i18n="successRateDesc">โอกาสที่เงินจะพอถึงอายุ</span> <span id="mcTargetAgeText">90</span> <span data-i18n="yearsUnit">ปี</span></p>
+                                    <p id="mcRiskExplanationText" class="text-xs text-slate-500" data-i18n="riskExpl">หมายความว่า มีประมาณ 1 ใน 3 ที่เงินอาจหมดก่อนเป้าหมาย</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="md:col-span-4 bg-white rounded-2xl card-shadow border border-slate-100 overflow-hidden flex flex-col">
+                        <div class="header-gradient px-4 py-2.5 flex justify-between items-center">
+                            <div>
+                                <h3 class="text-white font-semibold text-sm" data-i18n="sorrCardHeader">ผลการทดสอบ SORR</h3>
+                                <p class="text-[11px] text-blue-100" data-i18n="sorrCardSub">(ตลาดแย่ 5 ปีแรก)</p>
+                            </div>
+                            <button onclick="toggleSorrEditor()" class="text-[11px] bg-white/15 text-white px-2 py-1 rounded" data-i18n="editSorrBtn">แก้ไขปีติดลบ</button>
+                        </div>
+                        <div class="p-4 flex-grow flex flex-col justify-between">
+                            <div id="sorrAlertBox" class="bg-rose-50 border border-rose-200 rounded-xl p-3 flex items-center gap-3 mb-3">
+                                <div class="w-9 h-9 rounded-full bg-rose-500 text-white flex items-center justify-center shrink-0">
+                                    <i class="fa-solid fa-exclamation"></i>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-slate-600 font-medium" data-i18n="sorrDepletedLabel">เงินหมดประมาณ</p>
+                                    <p id="sorrDepletionAgeText" class="text-lg font-extrabold text-rose-600">อายุ 82 ปี</p>
+                                </div>
+                            </div>
+                            <div id="sorrEditorPanel" class="hidden mb-3 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                                <p class="text-[11px] font-semibold text-slate-600 mb-1" data-i18n="sorrEditPrompt">ปรับผลตอบแทน 5 ปีแรก (% ต่อปี):</p>
+                                <div class="grid grid-cols-5 gap-1">
+                                    <input type="number" id="sorrY1" value="-5" class="text-center text-xs font-bold p-1 rounded border border-slate-300 text-rose-600" oninput="handleInputChange()">
+                                    <input type="number" id="sorrY2" value="-2" class="text-center text-xs font-bold p-1 rounded border border-slate-300 text-rose-600" oninput="handleInputChange()">
+                                    <input type="number" id="sorrY3" value="-4" class="text-center text-xs font-bold p-1 rounded border border-slate-300 text-rose-600" oninput="handleInputChange()">
+                                    <input type="number" id="sorrY4" value="-1" class="text-center text-xs font-bold p-1 rounded border border-slate-300 text-rose-600" oninput="handleInputChange()">
+                                    <input type="number" id="sorrY5" value="-7" class="text-center text-xs font-bold p-1 rounded border border-slate-300 text-rose-600" oninput="handleInputChange()">
+                                </div>
+                            </div>
+                            <p class="text-xs text-slate-600" data-i18n="sorrDesc">เจอวิกฤตหุ้นติดลบติดต่อกันในช่วงต้น ทำให้พอร์ตเสียหายหนักก่อนฟื้นตัว</p>
+                        </div>
+                    </div>
+
+                    <div class="md:col-span-4 bg-white rounded-2xl card-shadow border border-slate-100 overflow-hidden flex flex-col">
+                        <div class="header-gradient px-4 py-2.5">
+                            <h3 class="text-white font-semibold text-sm" data-i18n="targetCardHeader">ระดับเงินที่ต้องใช้ตามเป้าหมายความสำเร็จ</h3>
+                            <p class="text-[11px] text-blue-100">(Monte Carlo Target Capital)</p>
+                        </div>
+                        <div class="p-4 flex-grow flex flex-col justify-between">
+                            <table class="w-full text-left text-xs">
+                                <thead>
+                                    <tr class="border-b text-slate-500">
+                                        <th class="pb-2" data-i18n="thSuccessProb">โอกาสสำเร็จ</th>
+                                        <th class="pb-2 text-right" data-i18n="thRequiredCap">เงินที่ต้องใช้ (ลบ.)</th>
+                                        <th class="pb-2 text-right" data-i18n="thStatus">สถานะ</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y">
+                                    <tr>
+                                        <td class="py-2 font-bold text-navy-800">Base Plan</td>
+                                        <td id="targetCapBase" class="py-2 text-right">3.960</td>
+                                        <td id="statusCapBase" class="py-2 text-right"></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="py-2 font-bold text-navy-800">80%</td>
+                                        <td id="targetCap80" class="py-2 text-right">4.423</td>
+                                        <td id="statusCap80" class="py-2 text-right"></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="py-2 font-bold text-navy-800">90%</td>
+                                        <td id="targetCap90" class="py-2 text-right">4.886</td>
+                                        <td id="statusCap90" class="py-2 text-right"></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <div id="targetCapSummaryNote" class="mt-2 bg-mint-50 border border-mint-100 rounded-lg p-2.5 text-[11px] text-emerald-800" data-i18n="targetNote">
+                                เงินเก็บ 5.00 ลบ. สูงกว่าเกณฑ์โอกาสสำเร็จ 90% (4.886 ลบ.)
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. CASHFLOW TABLE -->
+                <div class="bg-white rounded-2xl card-shadow border border-slate-100 overflow-hidden">
+                    <button onclick="toggleCashflowTable()" class="w-full px-5 py-3.5 bg-slate-50 hover:bg-slate-100 transition flex items-center justify-between text-left border-b">
+                        <span class="font-semibold text-sm text-navy-800"><span data-i18n="tableHeaderTitle">ตารางกระแสเงินสดรายปี (อายุ</span> <span id="tableStartAge">60</span> - <span id="tableEndAge">90</span> <span data-i18n="yearsUnit">ปี</span>)</span>
+                        <span id="tableToggleIcon" class="text-xs font-semibold text-navy-700"><span data-i18n="viewTableDetails">ดูตารางละเอียด</span> <i class="fa-solid fa-chevron-down"></i></span>
+                    </button>
+                    <div id="cashflowTableContainer" class="hidden max-h-96 overflow-y-auto">
+                        <table class="w-full text-xs text-right border-collapse">
+                            <thead class="bg-slate-100 text-slate-600 sticky top-0">
+                                <tr>
+                                    <th class="py-2.5 px-2.5 text-center" data-i18n="tblYear">ปีที่</th>
+                                    <th class="py-2.5 px-2.5 text-center" data-i18n="tblAge">อายุ</th>
+                                    <th class="py-2.5 px-2.5" data-i18n="tblExp">รายจ่ายรวม</th>
+                                    <th class="py-2.5 px-2.5" data-i18n="tblPension">บำนาญ</th>
+                                    <th class="py-2.5 px-2.5" data-i18n="tblRentalDiv">ค่าเช่า+ปันผล</th>
+                                    <th class="py-2.5 px-2.5" data-i18n="tblTax">ภาษีสุทธิ</th>
+                                    <th class="py-2.5 px-2.5" data-i18n="tblWithdrawal">ถอนสุทธิพอร์ต</th>
+                                    <th class="py-2.5 px-2.5" data-i18n="tblEndNormal">พอร์ตสิ้นปี (ปกติ)</th>
+                                    <th class="py-2.5 px-2.5" data-i18n="tblEndSorr">พอร์ตสิ้นปี (SORR)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="cashflowTableBody" class="divide-y divide-slate-100"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </section>
+        </div>
+    </main>
+
+    <!-- Script Application Logic -->
+    <script>
+        let currentLang = 'th';
+        let simMode = 'actual';
+        let mainChartInstance = null;
+        let donutChartInstance = null;
+
+        const translations = {
+            th: {
+                badgeTitle: "แผนการเงินหลังเกษียณแบบ Interactive",
+                headerPlanFor: "วางแผนเกษียณให้พอใช้ไปอีก",
+                yearsUnit: "ปี",
+                simBaseLabel: "ฐานเงินที่ใช้จำลองกราฟ & ความเสี่ยง:",
+                simBaseSub: "เลือกดูตามเงินเก็บที่มีจริง หรือเกณฑ์เงินขั้นต่ำ",
+                btnActualSavings: "ใช้เงินเก็บที่มี (5.00 ลบ.)",
+                btnBaseRisk: "ใช้เกณฑ์ความเสี่ยง AWW RIS",
+                cardProfileHeader: "ข้อมูลของผู้วางแผน",
+                btnReset: "ค่าเริ่มต้น",
+                labelClientName: "ชื่อผู้วางแผนเกษียณ",
+                labelClientQuote: "เป้าหมาย/ความตั้งใจหลังเกษียณ",
+                labelCurrentAge: "อายุปัจจุบัน (ปี)",
+                labelTargetAge: "วางแผนถึงอายุ",
+                labelInitialSavings: "เงินเกษียณตั้งต้นที่มี",
+                unitBaht: "บาท",
+                labelPension: "เงินบำนาญประกันสังคม",
+                unitBahtMonth: "บ./เดือน",
+                cardTaxHeader: "รายได้เสริม & ภาษีขั้นบันได",
+                badgeOff: "ปิดอยู่",
+                badgeOn: "เปิดอยู่",
+                labelPresets: "ตัวอย่างรูปแบบรายได้เสริม & ภาษี:",
+                presetNone: "เฉพาะบำนาญ",
+                presetRental: "คอนโดให้เช่า",
+                presetCombo: "ปันผล+ค่าเช่า",
+                taxHintDisabled: "เปิดใช้งานเพื่อจำลองค่าเช่าอสังหาฯ และเงินปันผลหุ้น พร้อมเครดิตภาษี",
+                rentalTitle: "1. ค่าเช่าอสังหาฯ (ม.40(5))",
+                labelRentalMonthly: "ค่าเช่ารับ (บ./ด.)",
+                labelRentalGrowth: "ขึ้นค่าเช่า (%/ปี)",
+                labelRentalExpPct: "หักค่าใช้จ่ายภาษี (%)",
+                optRentExp30: "หักเหมา 30% (บ้าน/คอนโด)",
+                optRentExp20: "หักเหมา 20% (ที่ดินเกษตร)",
+                optRentExp15: "หักเหมา 15% (ที่ดินอื่นๆ)",
+                optRentExp50: "หักตามจริง (สมมติ 50%)",
+                labelRentalMaintPct: "ซ่อมบำรุง/ภาษีที่ดิน (%)",
+                dividendTitle: "2. เงินปันผล (ม.40(4)(ข))",
+                divSourceLabel: "ที่มาของเงินปันผล (ป้องกันการนับซ้ำ):",
+                divOptA: "Option A: รวมในผลตอบแทนพอร์ตแล้ว (ไม่นับซ้ำ)",
+                divOptASub: "นำเฉพาะเครดิตภาษี/ภาษีปันผลมาปรับกระแสเงินสด ไม่บวกเงินต้นปันผลซ้ำ",
+                divOptB: "Option B: พอร์ตปันผลแยกต่างหาก (บวกเพิ่ม)",
+                divOptBSub: "นำเงินปันผลสุทธิหลังภาษีทั้งก้อนมาช่วยลดการถอนพอร์ตหลัก",
+                labelDivAnnual: "เงินปันผลก่อนภาษี (บ./ปี)",
+                labelDivGrowth: "เติบโต (%/ปี)",
+                labelTaxMethod: "วิธีคำนวณภาษี",
+                optTaxCredit: "ยื่นรวมขั้นบันได + เครดิตภาษีปันผล (ม.47 ทวิ)",
+                optTaxFinal: "หัก ณ ที่จ่าย 10% (Final Tax)",
+                optTaxNoCredit: "ยื่นรวมขั้นบันได (ไม่มีเครดิต)",
+                labelCorpTaxRate: "อัตราภาษีนิติบุคคลของหุ้น (เครดิตภาษี)",
+                optCorp20: "20% — เครดิตภาษี 20/80 (25%)",
+                optCorp15: "15% — เครดิตภาษี 15/85 (17.65%)",
+                optCorp10: "10% — เครดิตภาษี 10/90 (11.11%)",
+                seniorTitle: "3. สิทธิผู้สูงอายุ & ลดหย่อน",
+                seniorCheckbox: "ใช้สิทธิผู้สูงอายุ (อายุ ≥ 65 ปี ยกเว้น 190,000 บ.)",
+                labelExtraDeduct: "ลดหย่อนอื่นๆ เพิ่มเติม (นอกเหนือส่วนตัว 60,000):",
+                cardAssumptionsHeader: "สมมติฐานในการวางแผน",
+                labelExpense: "ค่าใช้จ่ายพื้นฐาน",
+                labelReturn: "ผลตอบแทนพอร์ต",
+                labelInflation: "เงินเฟ้อ",
+                labelVolatility: "ความผันผวนพอร์ต (Volatility SD)",
+                perYear: "ต่อปี",
+                btnMonteCarlo: "สุ่มจำลอง Monte Carlo ใหม่ (5,000 Paths)",
+                cardBasePlanHeader: "ผลการคำนวณค่าใช้จ่ายพื้นฐานจาก AWW RIS (Base Plan)",
+                reqCapTitle: "เงินที่ต้องใช้สำหรับค่าใช้จ่ายพื้นฐาน",
+                unitMillionBaht: "ล้านบาท",
+                pensionDeduct: "หักบำนาญ",
+                currentSavingsLabel: "เงินเก็บปัจจุบันที่มี",
+                surplusLabel: "มากกว่าเงินที่ต้องใช้",
+                chartHeader: "กราฟประมาณการเงินคงเหลือ (Base Plan & ช่วงความไม่แน่นอน)",
+                showSorrLabel: "แสดงเส้นตลาดแย่ 5 ปีแรก (SORR)",
+                chartBasisText: "กราฟแสดงพอร์ตตั้งต้น:",
+                taxCardHeader: "การคำนวณภาษีเงินได้บุคคลธรรมดาแบบขั้นบันได",
+                inspectAge: "เลือกดูที่อายุ:",
+                taxCol1: "รายได้ค่าเช่า+ปันผล (ก่อนภาษี)",
+                taxCol2: "เงินได้สุทธิ (ยื่นภาษี)",
+                taxCol3: "ภาระภาษี / เงินคืน",
+                taxCol4: "เงินสดช่วยลดการถอนพอร์ต",
+                switchOption: "สลับ Option A / B",
+                riskCardHeader: "ผลการทดสอบความเสี่ยง",
+                successRateDesc: "โอกาสที่เงินจะพอถึงอายุ",
+                riskExpl: "หมายความว่า มีประมาณ 1 ใน 3 ที่เงินอาจหมดก่อนเป้าหมาย",
+                sorrCardHeader: "ผลการทดสอบ SORR",
+                sorrCardSub: "(ตลาดแย่ 5 ปีแรก)",
+                editSorrBtn: "แก้ไขปีติดลบ",
+                sorrDepletedLabel: "เงินหมดประมาณ",
+                sorrEditPrompt: "ปรับผลตอบแทน 5 ปีแรก (% ต่อปี):",
+                sorrDesc: "เจอวิกฤตหุ้นติดลบติดต่อกันในช่วงต้น ทำให้พอร์ตเสียหายหนักก่อนฟื้นตัว",
+                targetCardHeader: "ระดับเงินที่ต้องใช้ตามเป้าหมายความสำเร็จ",
+                thSuccessProb: "โอกาสสำเร็จ",
+                thRequiredCap: "เงินที่ต้องใช้ (ลบ.)",
+                thStatus: "สถานะ",
+                targetNote: "เงินเก็บ 5.00 ลบ. สูงกว่าเกณฑ์โอกาสสำเร็จ 90% (4.886 ลบ.)",
+                tableHeaderTitle: "ตารางกระแสเงินสดรายปี (อายุ",
+                viewTableDetails: "ดูตารางละเอียด",
+                tblYear: "ปีที่",
+                tblAge: "อายุ",
+                tblExp: "รายจ่ายรวม",
+                tblPension: "บำนาญ",
+                tblRentalDiv: "ค่าเช่า+ปันผล",
+                tblTax: "ภาษีสุทธิ",
+                tblWithdrawal: "ถอนสุทธิพอร์ต",
+                tblEndNormal: "พอร์ตสิ้นปี (ปกติ)",
+                tblEndSorr: "พอร์ตสิ้นปี (SORR)"
+            },
+            en: {
+                badgeTitle: "Interactive Retirement Financial Plan",
+                headerPlanFor: "Retirement Plan to Last Another",
+                yearsUnit: "Years",
+                simBaseLabel: "Simulation Capital & Risk Basis:",
+                simBaseSub: "View based on actual savings or minimum required plan",
+                btnActualSavings: "Actual Savings (5.00 MTHB)",
+                btnBaseRisk: "AWW RIS Risk Basis",
+                cardProfileHeader: "Planner Profile",
+                btnReset: "Default",
+                labelClientName: "Retirement Planner Name",
+                labelClientQuote: "Retirement Goal / Motto",
+                labelCurrentAge: "Current Age (Years)",
+                labelTargetAge: "Plan Until Age",
+                labelInitialSavings: "Initial Retirement Savings",
+                unitBaht: "THB",
+                labelPension: "Social Security Pension",
+                unitBahtMonth: "THB/mo",
+                cardTaxHeader: "Supplemental Income & Progressive Tax",
+                badgeOff: "Disabled",
+                badgeOn: "Enabled",
+                labelPresets: "Income & Tax Scenario Presets:",
+                presetNone: "Pension Only",
+                presetRental: "Rental Condo",
+                presetCombo: "Dividend + Rental",
+                taxHintDisabled: "Enable to simulate rental property income & stock dividends with tax credits.",
+                rentalTitle: "1. Real Estate Rental Income (Sec. 40(5))",
+                labelRentalMonthly: "Monthly Rent (THB)",
+                labelRentalGrowth: "Rental Growth (%/yr)",
+                labelRentalExpPct: "Tax Expense Deduction (%)",
+                optRentExp30: "30% Standard (House/Condo)",
+                optRentExp20: "20% Standard (Agri Land)",
+                optRentExp15: "15% Standard (Other Land)",
+                optRentExp50: "Actual Expense (Est. 50%)",
+                labelRentalMaintPct: "Maint./Land Tax Cost (%)",
+                dividendTitle: "2. Stock/Fund Dividend Income (Sec. 40(4)(b))",
+                divSourceLabel: "Dividend Source (Prevent Double Counting):",
+                divOptA: "Option A: Included in portfolio return (No double count)",
+                divOptASub: "Adjust cash flows only via tax credits/dividends tax, without adding principal twice.",
+                divOptB: "Option B: Separate dividend portfolio (Add income)",
+                divOptBSub: "Add full net dividend after tax as supplemental cash flow to reduce portfolio withdrawal.",
+                labelDivAnnual: "Pre-tax Dividend (THB/yr)",
+                labelDivGrowth: "Dividend Growth (%/yr)",
+                labelTaxMethod: "Tax Calculation Method",
+                optTaxCredit: "Progressive Tax + Dividend Tax Credit (Sec. 47 bis)",
+                optTaxFinal: "10% Withholding Tax (Final Tax)",
+                optTaxNoCredit: "Progressive Tax (No Credit)",
+                labelCorpTaxRate: "Corporate Tax Rate of Stock (Tax Credit)",
+                optCorp20: "20% — Tax Credit 20/80 (25%)",
+                optCorp15: "15% — Tax Credit 15/85 (17.65%)",
+                optCorp10: "10% — Tax Credit 10/90 (11.11%)",
+                seniorTitle: "3. Senior Citizen & Deductions",
+                seniorCheckbox: "Senior Exemption (Age ≥ 65, first 190,000 THB exempt)",
+                labelExtraDeduct: "Extra Deductions (beyond 60,000 personal):",
+                cardAssumptionsHeader: "Planning Assumptions",
+                labelExpense: "Basic Monthly Expense",
+                labelReturn: "Portfolio Return",
+                labelInflation: "Inflation Rate",
+                labelVolatility: "Portfolio Volatility (SD)",
+                perYear: "per year",
+                btnMonteCarlo: "Rerun Monte Carlo Simulation (5,000 Paths)",
+                cardBasePlanHeader: "AWW RIS Base Plan Calculation Results",
+                reqCapTitle: "Required Capital for Basic Expenses",
+                unitMillionBaht: "Million THB",
+                pensionDeduct: "Less Pension",
+                currentSavingsLabel: "Current Savings",
+                surplusLabel: "Surplus Over Required",
+                chartHeader: "Remaining Portfolio Projection (Base Plan & Uncertainty Fan)",
+                showSorrLabel: "Show 5-Year Poor Market Start (SORR)",
+                chartBasisText: "Initial Portfolio Basis:",
+                taxCardHeader: "Progressive Personal Income Tax Calculation",
+                inspectAge: "Inspect at Age:",
+                taxCol1: "Rental + Dividend (Pre-tax)",
+                taxCol2: "Net Taxable Income",
+                taxCol3: "Tax Burden / Refund",
+                taxCol4: "Cash Flow to Reduce Withdrawal",
+                switchOption: "Switch Option A / B",
+                riskCardHeader: "Risk Test Results",
+                successRateDesc: "Probability of Funds Lasting to Age",
+                riskExpl: "Meaning there is about a 1 in 3 chance funds may deplete early.",
+                sorrCardHeader: "SORR Test Results",
+                sorrCardSub: "(First 5 Years Bear Market)",
+                editSorrBtn: "Edit Negative Years",
+                sorrDepletedLabel: "Depleted Around",
+                sorrEditPrompt: "Adjust First 5 Years Returns (%/yr):",
+                sorrDesc: "Experiencing consecutive down markets early severely impairs the portfolio before recovery.",
+                targetCardHeader: "Target Capital by Success Probability",
+                thSuccessProb: "Success Prob.",
+                thRequiredCap: "Required Cap (MTHB)",
+                thStatus: "Status",
+                targetNote: "Savings of 5.00 MTHB exceeds the 90% success threshold (4.886 MTHB).",
+                tableHeaderTitle: "Year-by-Year Cash Flow Table (Age",
+                viewTableDetails: "View Details",
+                tblYear: "Year",
+                tblAge: "Age",
+                tblExp: "Total Exp.",
+                tblPension: "Pension",
+                tblRentalDiv: "Rental+Div",
+                tblTax: "Net Tax",
+                tblWithdrawal: "Net Withdrawal",
+                tblEndNormal: "Ending Portfolio (Normal)",
+                tblEndSorr: "Ending Portfolio (SORR)"
+            }
+        };
+
+        function setLanguage(lang) {
+            currentLang = lang;
+            document.getElementById('langThBtn').className = lang === 'th' ? 'px-2.5 py-1 text-xs font-bold rounded bg-navy-700 text-white transition' : 'px-2.5 py-1 text-xs font-bold rounded text-slate-700 hover:text-navy-800 transition';
+            document.getElementById('langEnBtn').className = lang === 'en' ? 'px-2.5 py-1 text-xs font-bold rounded bg-navy-700 text-white transition' : 'px-2.5 py-1 text-xs font-bold rounded text-slate-700 hover:text-navy-800 transition';
+
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (translations[lang][key]) {
+                    el.textContent = translations[lang][key];
+                }
+            });
+            runFullSimulation(false);
+        }
+
+        function calculateYearlyTaxDetail(age, grossRental, grossDividend, taxConfig) {
+            if (!taxConfig || !taxConfig.enabled || (grossRental <= 0 && grossDividend <= 0)) {
+                return {
+                    age, grossRental: 0, grossDividend: 0, totalGrossSupplemental: 0,
+                    netTaxableIncome: 0, progressiveTax: 0, totalTaxBurden: 0,
+                    netSupplementalCashflow: 0, effectiveTaxRatePct: 0
+                };
+            }
+            const { rentalExpensePct, rentalActualCostPct, dividendTaxMethod, dividendCorpTaxRate, dividendSourceMode = 'included', portfolioReturnTaxBasis = 'gross', useSeniorExemption, extraDeductions } = taxConfig;
+            let remainingSenior = (useSeniorExemption && age >= 65) ? 190000 : 0;
+
+            const rentalExUsed = Math.min(grossRental, remainingSenior);
+            remainingSenior -= rentalExUsed;
+            const assessRental = Math.max(0, grossRental - rentalExUsed);
+            const rentalExpDeducted = assessRental * (rentalExpensePct / 100);
+            const netRentalAssessable = Math.max(0, assessRental - rentalExpDeducted);
+            const actualMaint = grossRental * (rentalActualCostPct / 100);
+
+            const totalAllowances = 60000 + (extraDeductions || 0);
+            const netRentalOnly = Math.max(0, netRentalAssessable - totalAllowances);
+            let progRentalOnly = 0;
+            THAI_TAX_BRACKETS.forEach(b => {
+                if (netRentalOnly > b.min) progRentalOnly += (Math.min(netRentalOnly, b.max) - b.min) * b.rate;
+            });
+
+            const divW10 = grossDividend * 0.10;
+            let divCredit = 0, divAssessable = 0;
+            if (dividendTaxMethod === 'credit' && grossDividend > 0) {
+                const corpRate = dividendCorpTaxRate / 100;
+                divCredit = grossDividend * (corpRate / (1 - corpRate));
+                const totalDivCredit = grossDividend + divCredit;
+                const divExUsed = Math.min(totalDivCredit, remainingSenior);
+                remainingSenior -= divExUsed;
+                divAssessable = Math.max(0, totalDivCredit - divExUsed);
+            } else if (dividendTaxMethod === 'progressive_no_credit' && grossDividend > 0) {
+                const divExUsed = Math.min(grossDividend, remainingSenior);
+                remainingSenior -= divExUsed;
+                divAssessable = Math.max(0, grossDividend - divExUsed);
+            }
+
+            const netTaxableIncome = Math.max(0, netRentalAssessable + divAssessable - totalAllowances);
+            let progressiveTax = 0;
+            THAI_TAX_BRACKETS.forEach(b => {
+                if (netTaxableIncome > b.min) progressiveTax += (Math.min(netTaxableIncome, b.max) - b.min) * b.rate;
+            });
+
+            let totalTaxBurden = 0;
+            if (dividendTaxMethod === 'final') {
+                totalTaxBurden = progressiveTax + divW10;
+            } else if (dividendTaxMethod === 'credit') {
+                totalTaxBurden = progressiveTax - divCredit;
+            } else {
+                totalTaxBurden = progressiveTax;
+            }
+            const netRentalCash = grossRental - actualMaint - progRentalOnly;
+            const incDivTax = totalTaxBurden - progRentalOnly;
+
+            let divContrib = 0;
+            if (grossDividend > 0) {
+                divContrib = dividendSourceMode === 'separate' ? (grossDividend - incDivTax) : (portfolioReturnTaxBasis === 'gross' ? -incDivTax : divW10 - incDivTax);
+            }
+            const netSupplementalCashflow = netRentalCash + divContrib;
+            const totalGross = grossRental + grossDividend;
+
+            return {
+                age, grossRental, grossDividend, totalGrossSupplemental: totalGross,
+                netRentalCash, incDivTax, divContrib, dividendSourceMode,
+                netTaxableIncome, progressiveTax, totalTaxBurden, netSupplementalCashflow,
+                effectiveTaxRatePct: totalGross > 0 ? (totalTaxBurden / totalGross) * 100 : 0
+            };
+        }
+
+        const THAI_TAX_BRACKETS = [
+            { min: 0, max: 150000, rate: 0.00 },
+            { min: 150000, max: 300000, rate: 0.05 },
+            { min: 300000, max: 500000, rate: 0.10 },
+            { min: 500000, max: 750000, rate: 0.15 },
+            { min: 750000, max: 1000000, rate: 0.20 },
+            { min: 1000000, max: 2000000, rate: 0.25 },
+            { min: 2000000, max: 5000000, rate: 0.30 },
+            { min: 5000000, max: Infinity, rate: 0.35 }
+        ];
+
+        function handleDividendSourceChange() {
+            const isIncluded = document.getElementById('divSourceIncluded')?.checked ?? true;
+            const cardInc = document.getElementById('divOptIncludedCard');
+            const cardSep = document.getElementById('divOptSeparateCard');
+            if (cardInc && cardSep) {
+                if (isIncluded) {
+                    cardInc.className = 'flex items-start gap-2 p-2 rounded-lg border border-indigo-600 bg-indigo-50/70 cursor-pointer transition';
+                    cardSep.className = 'flex items-start gap-2 p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer transition';
+                } else {
+                    cardSep.className = 'flex items-start gap-2 p-2 rounded-lg border border-indigo-600 bg-indigo-50/70 cursor-pointer transition';
+                    cardInc.className = 'flex items-start gap-2 p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer transition';
+                }
+            }
+            handleInputChange();
+        }
+
+        function toggleDividendSourceModeQuick() {
+            const inc = document.getElementById('divSourceIncluded');
+            const sep = document.getElementById('divSourceSeparate');
+            if (inc && sep) {
+                inc.checked = !inc.checked;
+                sep.checked = !inc.checked;
+            }
+            handleDividendSourceChange();
+        }
+
+        function toggleTaxModuleUI() {
+            const enabled = document.getElementById('enableTaxModule').checked;
+            document.getElementById('taxModuleControls').classList.toggle('hidden', !enabled);
+            document.getElementById('taxModuleDisabledHint').classList.toggle('hidden', enabled);
+            document.getElementById('taxModuleStatusBadge').textContent = enabled ? (currentLang === 'th' ? 'เปิดอยู่' : 'Enabled') : (currentLang === 'th' ? 'ปิดอยู่' : 'Disabled');
+            if (enabled) {
+                const rVal = parseFloat(document.getElementById('rentalMonthly')?.value) || 0;
+                const dVal = parseFloat(document.getElementById('dividendAnnual')?.value) || 0;
+                if (rVal === 0 && dVal === 0) {
+                    document.getElementById('rentalMonthly').value = 12000;
+                    document.getElementById('dividendAnnual').value = 180000;
+                    updatePresetButtonStyles('combo');
+                }
+            } else {
+                updatePresetButtonStyles('none');
+            }
+            handleInputChange();
+        }
+
+        function applyTaxPreset(preset) {
+            const toggle = document.getElementById('enableTaxModule');
+            if (preset === 'none') {
+                toggle.checked = false;
+                document.getElementById('rentalMonthly').value = 0;
+                document.getElementById('dividendAnnual').value = 0;
+                updatePresetButtonStyles('none');
+            } else if (preset === 'rental') {
+                toggle.checked = true;
+                document.getElementById('rentalMonthly').value = 10000;
+                document.getElementById('dividendAnnual').value = 0;
+                updatePresetButtonStyles('rental');
+            } else if (preset === 'combo') {
+                toggle.checked = true;
+                document.getElementById('rentalMonthly').value = 12000;
+                document.getElementById('dividendAnnual').value = 180000;
+                updatePresetButtonStyles('combo');
+            }
+            toggleTaxModuleUI();
+        }
+
+        function updatePresetButtonStyles(active) {
+            ['none', 'rental', 'combo'].forEach(k => {
+                const btn = document.getElementById('presetBtn' + k.charAt(0).toUpperCase() + k.slice(1));
+                if (btn) btn.className = k === active ? 'px-2 py-1.5 rounded-lg text-[11px] font-semibold bg-navy-700 text-white transition text-center' : 'px-2 py-1.5 rounded-lg text-[11px] font-semibold border bg-slate-50 text-slate-700 transition text-center';
+            });
+        }
+
+        function getPlannerNameInfo() {
+            const rawName = (document.getElementById('clientNameInput')?.value || '').trim();
+            const rawQuote = (document.getElementById('clientQuoteInput')?.value || '').trim();
+            const defName = currentLang === 'th' ? 'ผู้วางแผนเกษียณ' : 'Retirement Planner';
+            return {
+                displayName: rawName || defName,
+                sidebarTitle: rawName ? (currentLang === 'th' ? `ข้อมูลของ${rawName}` : `${rawName}'s Profile`) : (currentLang === 'th' ? 'ข้อมูลของผู้วางแผน' : 'Planner Profile'),
+                savingsLabel: rawName ? (currentLang === 'th' ? `${rawName}มีเงินเก็บ` : `${rawName}'s Savings`) : (currentLang === 'th' ? 'เงินเก็บปัจจุบันที่มี' : 'Current Savings'),
+                possessiveText: rawName ? `of ${rawName}` : 'available',
+                quoteText: rawQuote || (currentLang === 'th' ? '“วางแผนการเงินอย่างรอบคอบ เพื่อใช้ชีวิตหลังเกษียณได้อย่างมั่นคงและสบายใจ”' : '“Careful financial planning for a secure and comfortable retirement.”')
+            };
+        }
+
+        function updateClientNameDisplay() {
+            const info = getPlannerNameInfo();
+            document.getElementById('headerClientNameDisplay').textContent = info.displayName;
+            document.getElementById('headerQuoteDisplay').textContent = info.quoteText;
+            document.getElementById('sidebarProfileHeader').textContent = info.sidebarTitle;
+            document.getElementById('currentSavingsCardLabel').textContent = info.savingsLabel;
+            runFullSimulation(false);
+        }
+
+        function clearClientName() {
+            document.getElementById('clientNameInput').value = '';
+            updateClientNameDisplay();
+        }
+
+        function mulberry32(a) {
+            return function() {
+                var t = a += 0x6D2B79F5;
+                t = Math.imul(t ^ t >>> 15, t | 1);
+                t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+                return ((t ^ t >>> 14) >>> 0) / 4294967296;
+            }
+        }
+
+        function randn_bm(rng) {
+            let u = 0, v = 0;
+            while (u === 0) u = rng();
+            while (v === 0) v = rng();
+            return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+        }
+
+        function formatNumber(num, decimals = 0) {
+            return Number(num).toLocaleString(currentLang === 'th' ? 'th-TH' : 'en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+        }
+
+        function syncInputs(id) {
+            const slider = document.getElementById(id + 'Slider');
+            const input = document.getElementById(id);
+            if (slider && input) {
+                input.value = slider.value;
+                handleInputChange();
+            }
+        }
+
+        function syncSliders(id) {
+            const slider = document.getElementById(id + 'Slider');
+            const input = document.getElementById(id);
+            if (slider && input) {
+                slider.value = input.value;
+                handleInputChange();
+            }
+        }
+
+        function setSimMode(mode) {
+            simMode = mode;
+            document.getElementById('modeActualBtn').className = mode === 'actual' ? 'px-3 py-1.5 text-xs font-semibold rounded-md bg-navy-700 text-white shadow-sm' : 'px-3 py-1.5 text-xs font-semibold rounded-md text-slate-700';
+            document.getElementById('modeBaseBtn').className = mode === 'base' ? 'px-3 py-1.5 text-xs font-semibold rounded-md bg-navy-700 text-white shadow-sm' : 'px-3 py-1.5 text-xs font-semibold rounded-md text-slate-700';
+            runFullSimulation(false);
+        }
+
+        function resetToDefaultValues() {
+            document.getElementById('currentAge').value = 60;
+            document.getElementById('targetAge').value = 90;
+            document.getElementById('initialSavings').value = 5000000;
+            if (document.getElementById('initialSavingsSlider')) document.getElementById('initialSavingsSlider').value = 5000000;
+            document.getElementById('monthlyPension').value = 6375;
+            if (document.getElementById('monthlyPensionSlider')) document.getElementById('monthlyPensionSlider').value = 6375;
+            document.getElementById('monthlyExpense').value = 14000;
+            if (document.getElementById('monthlyExpenseSlider')) document.getElementById('monthlyExpenseSlider').value = 14000;
+            document.getElementById('expectedReturn').value = 4.8;
+            document.getElementById('inflationRate').value = 3.0;
+            document.getElementById('volatility').value = 6.0;
+            document.getElementById('sorrY1').value = -5;
+            document.getElementById('sorrY2').value = -2;
+            document.getElementById('sorrY3').value = -4;
+            document.getElementById('sorrY4').value = -1;
+            document.getElementById('sorrY5').value = -7;
+            document.getElementById('enableTaxModule').checked = false;
+            document.getElementById('rentalMonthly').value = 0;
+            document.getElementById('rentalGrowth').value = 0;
+            document.getElementById('dividendAnnual').value = 0;
+            document.getElementById('dividendGrowth').value = 2.0;
+            document.getElementById('divSourceIncluded').checked = true;
+            document.getElementById('divSourceSeparate').checked = false;
+            document.getElementById('clientNameInput').value = '';
+            currentSeed = 133742;
+            handleDividendSourceChange();
+            toggleTaxModuleUI();
+            updateClientNameDisplay();
+        }
+
+        function toggleSorrEditor() { document.getElementById('sorrEditorPanel').classList.toggle('hidden'); }
+        function toggleCashflowTable() { document.getElementById('cashflowTableContainer').classList.toggle('hidden'); }
+        function handleInputChange() { runFullSimulation(false); }
+
+        let currentSeed = 133742;
+        function calculateRetirementPlan(params, seed) {
+            const { currentAge, targetAge, initialSavings, monthlyPension, monthlyExpense, expectedReturn, inflationRate, volatility, sorrReturns, taxConfig } = params;
+            const years = Math.max(5, targetAge - currentAge);
+            const r = expectedReturn / 100, inf = inflationRate / 100, sd = volatility / 100;
+            const annualExp0 = monthlyExpense * 12, annualPension = monthlyPension * 12;
+            const totalChartYears = years + 4;
+
+            const netWithdrawals = [], grossExpenses = [], pensions = [], yearlyTaxDetails = [];
+            let requiredBaseCapital = 0;
+
+            for (let t = 1; t <= totalChartYears; t++) {
+                const age = currentAge + t - 1;
+                const grossExp = annualExp0 * Math.pow(1 + inf, t - 1);
+                const grossRental = taxConfig?.enabled ? (taxConfig.rentalMonthly * 12) * Math.pow(1 + taxConfig.rentalGrowth / 100, t - 1) : 0;
+                const grossDiv = taxConfig?.enabled ? taxConfig.dividendAnnual * Math.pow(1 + taxConfig.dividendGrowth / 100, t - 1) : 0;
+
+                const taxDetail = calculateYearlyTaxDetail(age, grossRental, grossDiv, taxConfig);
+                yearlyTaxDetails.push(taxDetail);
+
+                const netW = Math.max(0, grossExp - annualPension - taxDetail.netSupplementalCashflow);
+                grossExpenses.push(grossExp);
+                pensions.push(annualPension);
+                netWithdrawals.push(netW);
+
+                if (t <= years) requiredBaseCapital += netW / Math.pow(1 + r, t - 0.875);
+            }
+
+            const effectiveGrowth = (bal, w, rate) => (bal - w * 0.875) * (1 + rate) - w * 0.125;
+
+            function simulate(startCap, customReturns = null) {
+                let bal = startCap, depletionAge = null;
+                const balances = [startCap];
+                for (let t = 1; t <= totalChartYears; t++) {
+                    const yrR = customReturns && t <= customReturns.length ? customReturns[t - 1] / 100 : r;
+                    bal = Math.max(0, effectiveGrowth(bal, netWithdrawals[t - 1], yrR));
+                    if (bal <= 0 && depletionAge === null) depletionAge = currentAge + t - 1;
+                    balances.push(bal);
+                }
+                return { balances, depletionAge };
+            }
+
+            const baseDetActual = simulate(initialSavings), baseDetRequired = simulate(requiredBaseCapital);
+            const sorrActual = simulate(initialSavings, sorrReturns), sorrRequired = simulate(requiredBaseCapital, sorrReturns);
+
+            const numPaths = 5000, rng = mulberry32(seed);
+            const returnMatrix = [];
+            for (let p = 0; p < numPaths; p++) {
+                const row = [];
+                for (let t = 0; t < totalChartYears; t++) row.push((r - 0.0046) + sd * randn_bm(rng));
+                returnMatrix.push(row);
+            }
+
+            const sortedCapitals = new Float64Array(numPaths);
+            for (let p = 0; p < numPaths; p++) {
+                let needed = 0;
+                for (let t = years - 1; t >= 0; t--) {
+                    needed = ((needed + netWithdrawals[t] * 0.125) / Math.max(0.1, 1 + returnMatrix[p][t])) + netWithdrawals[t] * 0.875;
+                }
+                sortedCapitals[p] = needed;
+            }
+            sortedCapitals.sort();
+
+            const getSuccess = cap => {
+                let cnt = 0;
+                for (let i = 0; i < numPaths; i++) if (sortedCapitals[i] <= cap) cnt++; else break;
+                return (cnt / numPaths) * 100;
+            };
+
+            const mcSuccessBase = getSuccess(requiredBaseCapital), mcSuccessActual = getSuccess(initialSavings);
+            const targetCap80Val = sortedCapitals[Math.min(numPaths - 1, Math.floor(numPaths * 0.80))];
+            const targetCap90Val = sortedCapitals[Math.min(numPaths - 1, Math.floor(numPaths * 0.90))];
+            const chartCap = simMode === 'actual' ? initialSavings : requiredBaseCapital;
+            const medianLine = [chartCap], p5Line = [chartCap], p95Line = [chartCap];
+            const bals = new Float64Array(numPaths).fill(chartCap), buf = new Float64Array(numPaths);
+
+            for (let t = 0; t < totalChartYears; t++) {
+                const w = netWithdrawals[t];
+                for (let p = 0; p < numPaths; p++) {
+                    if (bals[p] > 0) bals[p] = Math.max(0, effectiveGrowth(bals[p], w, returnMatrix[p][t]));
+                    buf[p] = bals[p];
+                }
+                buf.sort();
+                p5Line.push(buf[Math.floor(numPaths * 0.05)]);
+                medianLine.push(buf[Math.floor(numPaths * 0.50)]);
+                p95Line.push(buf[Math.floor(numPaths * 0.95)]);
+            }
+
+            return {
+                years, totalChartYears, requiredBaseCapital, grossExpenses, pensions, netWithdrawals,
+                yearlyTaxDetails, baseDetActual, baseDetRequired, sorrActual, sorrRequired,
+                mcSuccessBase, mcSuccessActual, targetCap80Val, targetCap90Val,
+                medianLine, p5Line, p95Line, chartStartingCap: chartCap
+            };
+        }
+
+        function runFullSimulation(newSeed = false) {
+            if (newSeed) currentSeed = Math.floor(Math.random() * 1000000) + 1;
+            const currentAgeEl = document.getElementById('currentAge');
+            const targetAgeEl = document.getElementById('targetAge');
+            const initialSavingsEl = document.getElementById('initialSavings');
+            const monthlyPensionEl = document.getElementById('monthlyPension');
+            const monthlyExpenseEl = document.getElementById('monthlyExpense');
+            const expectedReturnEl = document.getElementById('expectedReturn');
+            const inflationRateEl = document.getElementById('inflationRate');
+            const volatilityEl = document.getElementById('volatility');
+
+            const currentAge = currentAgeEl ? parseInt(currentAgeEl.value) || 60 : 60;
+            const rawTargetAge = targetAgeEl ? parseInt(targetAgeEl.value) || 90 : 90;
+            const targetAge = Math.max(rawTargetAge, currentAge + 5);
+            const initialSavings = initialSavingsEl ? parseFloat(initialSavingsEl.value) || 0 : 0;
+            const monthlyPension = monthlyPensionEl ? parseFloat(monthlyPensionEl.value) || 0 : 0;
+            const monthlyExpense = monthlyExpenseEl ? parseFloat(monthlyExpenseEl.value) || 0 : 0;
+            const expectedReturn = expectedReturnEl ? parseFloat(expectedReturnEl.value) || 0 : 0;
+            const inflationRate = inflationRateEl ? parseFloat(inflationRateEl.value) || 0 : 0;
+            const volatility = volatilityEl ? parseFloat(volatilityEl.value) || 6.0 : 6.0;
+
+            const getVal = (id, def) => {
+                const el = document.getElementById(id);
+                if (!el) return def;
+                const parsed = parseFloat(el.value);
+                return Number.isNaN(parsed) ? def : parsed;
+            };
+
+            const sorrReturns = [
+                getVal('sorrY1', -5),
+                getVal('sorrY2', -2),
+                getVal('sorrY3', -4),
+                getVal('sorrY4', -1),
+                getVal('sorrY5', -7)
+            ];
+
+            const taxModuleEnabled = document.getElementById('enableTaxModule');
+            const rentalMonthly = getVal('rentalMonthly', 0);
+            const dividendAnnual = getVal('dividendAnnual', 0);
+            const dividendTaxMethod = document.getElementById('dividendTaxMethod')?.value || 'credit';
+            const dividendSourceMode = document.getElementById('divSourceSeparate')?.checked ? 'separate' : 'included';
+
+            const corpRow = document.getElementById('corpTaxRateRow');
+            if (corpRow) corpRow.classList.toggle('hidden', dividendTaxMethod !== 'credit');
+
+            const grossRentLbl = document.getElementById('grossRentalYearLabel');
+            if (grossRentLbl) grossRentLbl.textContent = `${formatNumber(rentalMonthly * 12)} ${currentLang === 'th' ? 'บ./ปี' : 'THB/yr'}`;
+            const grossDivLbl = document.getElementById('grossDividendMonthLabel');
+            if (grossDivLbl) grossDivLbl.textContent = `${formatNumber(dividendAnnual / 12)} ${currentLang === 'th' ? 'บ./ด.' : 'THB/mo'}`;
+
+            const taxConfig = {
+                enabled: taxModuleEnabled ? taxModuleEnabled.checked : false,
+                rentalMonthly,
+                rentalGrowth: getVal('rentalGrowth', 0),
+                rentalExpensePct: getVal('rentalExpensePct', 30),
+                rentalActualCostPct: getVal('rentalActualCostPct', 5),
+                dividendAnnual,
+                dividendGrowth: getVal('dividendGrowth', 0),
+                dividendTaxMethod,
+                dividendCorpTaxRate: getVal('dividendCorpTaxRate', 20),
+                dividendSourceMode,
+                useSeniorExemption: document.getElementById('useSeniorExemption')?.checked ?? true,
+                extraDeductions: getVal('extraDeductions', 0)
+            };
+
+            const years = targetAge - currentAge;
+            const results = calculateRetirementPlan({ currentAge, targetAge, initialSavings, monthlyPension, monthlyExpense, expectedReturn, inflationRate, volatility, sorrReturns, taxConfig }, currentSeed);
+            const reqM = results.requiredBaseCapital / 1e6, savM = initialSavings / 1e6;
+            const diffM = savM - reqM;
+
+            // Update Header & Assumption Badges dynamically
+            const hdrYrs = document.getElementById('headerYearsText');
+            if (hdrYrs) hdrYrs.textContent = years;
+            const planBadge = document.getElementById('planDurationBadge');
+            if (planBadge) planBadge.textContent = `${years} ${currentLang === 'th' ? 'ปี' : 'Years'}`;
+            const annExpLbl = document.getElementById('annualExpenseLabel');
+            if (annExpLbl) {
+                annExpLbl.textContent = currentLang === 'th'
+                    ? `(${(monthlyExpense * 12 / 100000).toFixed(2)} แสนบาท/ปี)`
+                    : `(${formatNumber(monthlyExpense * 12)} THB/yr)`;
+            }
+            const volText = document.getElementById('volatilityValueText');
+            if (volText) volText.textContent = `${volatility.toFixed(1)}% ${currentLang === 'th' ? 'ต่อปี' : 'per year'}`;
+            const modeActualBtn = document.getElementById('modeActualBtn');
+            if (modeActualBtn) {
+                modeActualBtn.textContent = currentLang === 'th'
+                    ? `ใช้เงินเก็บที่มี (${savM.toFixed(2)} ลบ.)`
+                    : `Actual Savings (${savM.toFixed(2)} MTHB)`;
+            }
+            const baseSub = document.getElementById('basePlanSubtext');
+            if (baseSub) {
+                baseSub.textContent = currentLang === 'th'
+                    ? `(ที่คำนึงถึงเงินเฟ้อ ${inflationRate.toFixed(1)}% และผลตอบแทน ${expectedReturn.toFixed(1)}%)`
+                    : `(Accounting for ${inflationRate.toFixed(1)}% inflation and ${expectedReturn.toFixed(1)}% return)`;
+            }
+
+            const reqCapText = document.getElementById('requiredCapitalText');
+            if (reqCapText) reqCapText.textContent = reqM.toFixed(2);
+            const curSavText = document.getElementById('currentSavingsCardText');
+            if (curSavText) curSavText.textContent = savM.toFixed(2);
+            const penSumText = document.getElementById('pensionSummaryText');
+            if (penSumText) penSumText.textContent = formatNumber(monthlyPension);
+
+            // Surplus / Deficit Box Update
+            const surplusBox = document.getElementById('surplusStatusBox');
+            const surplusIcon = document.getElementById('surplusIcon');
+            const surplusLabel = document.getElementById('surplusLabel');
+            const surplusAmountText = document.getElementById('surplusAmountText');
+            const unitM = currentLang === 'th' ? 'ล้านบาท' : 'Million THB';
+
+            if (surplusBox && surplusIcon && surplusLabel && surplusAmountText) {
+                if (diffM >= 0) {
+                    surplusBox.className = 'bg-mint-50 border border-mint-100 rounded-xl p-3.5 flex items-center gap-3.5';
+                    surplusIcon.className = 'w-10 h-10 rounded-full bg-mint-500 text-white flex items-center justify-center text-lg shrink-0 shadow-sm';
+                    surplusIcon.innerHTML = '<i class="fa-solid fa-check"></i>';
+                    surplusLabel.textContent = currentLang === 'th' ? 'มากกว่าเงินที่ต้องใช้' : 'Surplus Over Required';
+                    surplusAmountText.className = 'text-2xl font-extrabold text-mint-600';
+                    surplusAmountText.innerHTML = `${Math.abs(diffM).toFixed(2)} <span class="text-base font-bold">${unitM}</span>`;
+                } else {
+                    surplusBox.className = 'bg-rose-50 border border-rose-200 rounded-xl p-3.5 flex items-center gap-3.5';
+                    surplusIcon.className = 'w-10 h-10 rounded-full bg-rose-500 text-white flex items-center justify-center text-lg shrink-0 shadow-sm';
+                    surplusIcon.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i>';
+                    surplusLabel.textContent = currentLang === 'th' ? 'น้อยกว่าเงินที่ต้องใช้ (ขาดอีก)' : 'Shortfall Below Required';
+                    surplusAmountText.className = 'text-2xl font-extrabold text-rose-600';
+                    surplusAmountText.innerHTML = `${Math.abs(diffM).toFixed(2)} <span class="text-base font-bold">${unitM}</span>`;
+                }
+            }
+
+            // Monte Carlo Risk Card Update
+            const primaryProb = simMode === 'actual' ? results.mcSuccessActual : results.mcSuccessBase;
+            const mcRateText = document.getElementById('mcSuccessRateText');
+            if (mcRateText) mcRateText.textContent = `${primaryProb.toFixed(1)}%`;
+            const mcTargetAge = document.getElementById('mcTargetAgeText');
+            if (mcTargetAge) mcTargetAge.textContent = targetAge;
+            const mcExpl = document.getElementById('mcRiskExplanationText');
+            if (mcExpl) {
+                const failProb = 100 - primaryProb;
+                mcExpl.textContent = currentLang === 'th'
+                    ? `จากทุนที่เลือกทดสอบ มีโอกาส ${failProb.toFixed(1)}% ที่เงินอาจหมดก่อนอายุ ${targetAge} ปี`
+                    : `Based on tested capital, there is a ${failProb.toFixed(1)}% chance funds may deplete before age ${targetAge}.`;
+            }
+            updateDonutChart(primaryProb);
+
+            // SORR Card Update
+            const activeSorr = simMode === 'actual' ? results.sorrActual : results.sorrRequired;
+            const sorrDepText = document.getElementById('sorrDepletionAgeText');
+            const sorrAlertBox = document.getElementById('sorrAlertBox');
+            if (sorrDepText) {
+                if (activeSorr.depletionAge && activeSorr.depletionAge < targetAge) {
+                    if (sorrAlertBox) sorrAlertBox.className = 'bg-rose-50 border border-rose-200 rounded-xl p-3 flex items-center gap-3 mb-3';
+                    sorrDepText.className = 'text-lg font-extrabold text-rose-600';
+                    sorrDepText.textContent = `${currentLang === 'th' ? 'อายุ' : 'Age'} ${activeSorr.depletionAge} ${currentLang === 'th' ? 'ปี' : 'yrs'}`;
+                } else {
+                    if (sorrAlertBox) sorrAlertBox.className = 'bg-mint-50 border border-mint-100 rounded-xl p-3 flex items-center gap-3 mb-3';
+                    sorrDepText.className = 'text-lg font-extrabold text-emerald-600';
+                    sorrDepText.textContent = `${currentLang === 'th' ? 'พอใช้ถึง' : 'Lasts to'} ${targetAge} ${currentLang === 'th' ? 'ปี' : 'yrs'}`;
+                }
+            }
+
+            // Target Capital Table (Base / 80% / 90%) Update
+            const cap80M = results.targetCap80Val / 1e6;
+            const cap90M = results.targetCap90Val / 1e6;
+            const elCapBase = document.getElementById('targetCapBase');
+            const elCap80 = document.getElementById('targetCap80');
+            const elCap90 = document.getElementById('targetCap90');
+            if (elCapBase) elCapBase.textContent = reqM.toFixed(3);
+            if (elCap80) elCap80.textContent = cap80M.toFixed(3);
+            if (elCap90) elCap90.textContent = cap90M.toFixed(3);
+
+            const renderBadge = (neededM) => {
+                if (savM >= neededM) {
+                    return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-mint-100 text-emerald-700"><i class="fa-solid fa-check"></i> ${currentLang === 'th' ? 'พอเพียง' : 'Sufficient'}</span>`;
+                }
+                const shortM = neededM - savM;
+                return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700">${currentLang === 'th' ? 'ขาด' : 'Short'} ${shortM.toFixed(2)}</span>`;
+            };
+            if (document.getElementById('statusCapBase')) document.getElementById('statusCapBase').innerHTML = renderBadge(reqM);
+            if (document.getElementById('statusCap80')) document.getElementById('statusCap80').innerHTML = renderBadge(cap80M);
+            if (document.getElementById('statusCap90')) document.getElementById('statusCap90').innerHTML = renderBadge(cap90M);
+
+            const targetNote = document.getElementById('targetCapSummaryNote');
+            if (targetNote) {
+                if (savM >= cap90M) {
+                    targetNote.className = 'mt-2 bg-mint-50 border border-mint-100 rounded-lg p-2.5 text-[11px] text-emerald-800';
+                    targetNote.textContent = currentLang === 'th'
+                        ? `เงินเก็บ ${savM.toFixed(2)} ลบ. สูงกว่าเกณฑ์โอกาสสำเร็จ 90% (${cap90M.toFixed(3)} ลบ.)`
+                        : `Savings of ${savM.toFixed(2)} MTHB exceeds the 90% success threshold (${cap90M.toFixed(3)} MTHB).`;
+                } else {
+                    targetNote.className = 'mt-2 bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-[11px] text-amber-900';
+                    targetNote.textContent = currentLang === 'th'
+                        ? `ต้องการอีก ${(cap90M - savM).toFixed(2)} ลบ. เพื่อแตะระดับโอกาสสำเร็จ 90% (${cap90M.toFixed(3)} ลบ.)`
+                        : `Need ${(cap90M - savM).toFixed(2)} MTHB more to reach the 90% success threshold (${cap90M.toFixed(3)} MTHB).`;
+                }
+            }
+
+            window.latestSimResults = { currentAge, targetAge, taxConfig, results };
+            updateMainChart();
+            populateTaxAgeSelector(currentAge, targetAge);
+            renderTaxBreakdownForSelectedAge();
+            populateCashflowTable(currentAge, targetAge, results);
+        }
+
+        function populateTaxAgeSelector(currentAge, targetAge) {
+            const select = document.getElementById('taxInspectAgeSelect');
+            if (!select) return;
+            const prevAge = parseInt(select.value) || currentAge;
+            const validAge = Math.min(targetAge, Math.max(currentAge, prevAge));
+            let html = '';
+            for (let age = currentAge; age <= targetAge; age++) {
+                const selectedAttr = age === validAge ? 'selected' : '';
+                html += `<option value="${age}" ${selectedAttr}>${currentLang === 'th' ? 'อายุ' : 'Age'} ${age} ${currentLang === 'th' ? 'ปี' : ''}</option>`;
+            }
+            select.innerHTML = html;
+        }
+
+        function renderTaxBreakdownForSelectedAge() {
+            if (!window.latestSimResults) return;
+            const { currentAge, taxConfig, results } = window.latestSimResults;
+            const select = document.getElementById('taxInspectAgeSelect');
+            const age = select ? (parseInt(select.value) || currentAge) : currentAge;
+            const idx = Math.min(results.yearlyTaxDetails.length - 1, Math.max(0, age - currentAge));
+            const detail = results.yearlyTaxDetails[idx];
+
+            document.getElementById('taxCardGrossIncome').textContent = `${formatNumber(detail.totalGrossSupplemental)} ${currentLang === 'th' ? 'บ./ปี' : 'THB/yr'}`;
+            document.getElementById('taxCardNetTaxable').textContent = `${formatNumber(detail.netTaxableIncome)} ${currentLang === 'th' ? 'บ./ปี' : 'THB/yr'}`;
+
+            const settleValEl = document.getElementById('taxCardSettlementValue');
+            if (settleValEl) {
+                if (detail.totalTaxBurden < -1) {
+                    settleValEl.className = 'text-lg font-extrabold text-indigo-700';
+                    settleValEl.textContent = `+${formatNumber(Math.abs(detail.totalTaxBurden))} ${currentLang === 'th' ? 'บ./ปี (เครดิตคืน)' : 'THB/yr (Credit)'}`;
+                } else {
+                    settleValEl.className = 'text-lg font-extrabold text-navy-800';
+                    settleValEl.textContent = `${formatNumber(detail.totalTaxBurden)} ${currentLang === 'th' ? 'บ./ปี' : 'THB/yr'}`;
+                }
+            }
+
+            const cashFlowEl = document.getElementById('taxCardNetCashflow');
+            if (cashFlowEl) {
+                const cVal = detail.netSupplementalCashflow;
+                cashFlowEl.className = cVal >= 0 ? 'text-lg font-extrabold text-emerald-600' : 'text-lg font-extrabold text-rose-600';
+                cashFlowEl.textContent = `${cVal >= 0 ? '+' : ''}${formatNumber(cVal)} ${currentLang === 'th' ? 'บ./ปี' : 'THB/yr'}`;
+            }
+
+            // Synchronize Option A / Option B Badge and Formula Explanation on the right panel
+            const isSeparate = (taxConfig && taxConfig.dividendSourceMode === 'separate');
+            const modeBadge = document.getElementById('formulaModeBadge');
+            const mathExp = document.getElementById('formulaMathExplanation');
+            const grossExpYr = results.grossExpenses[idx] || 0;
+            const pensionYr = results.pensions[idx] || 0;
+            const netWithdrawalYr = results.netWithdrawals[idx] || 0;
+
+            if (modeBadge) {
+                if (!isSeparate) {
+                    modeBadge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-700 text-white';
+                    modeBadge.textContent = currentLang === 'th'
+                        ? 'Option A: รวมในผลตอบแทนพอร์ตแล้ว (ไม่นับซ้ำ)'
+                        : 'Option A: Included in Portfolio Return (No Double Count)';
+                } else {
+                    modeBadge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-700 text-white';
+                    modeBadge.textContent = currentLang === 'th'
+                        ? 'Option B: พอร์ตปันผลแยกต่างหาก (บวกรายได้เพิ่ม)'
+                        : 'Option B: Separate Dividend Portfolio (Add Income)';
+                }
+            }
+
+            if (mathExp) {
+                const divEffect = detail.divContrib || 0;
+                if (!isSeparate) {
+                    mathExp.innerHTML = currentLang === 'th'
+                        ? `<strong>สูตรคำนวณยอดถอนพอร์ต (อายุ ${detail.age} ปี - Option A):</strong> รายจ่ายรวม <strong>${formatNumber(grossExpYr)}</strong> − บำนาญ <strong>${formatNumber(pensionYr)}</strong> − ค่าเช่าสุทธิ <strong>${formatNumber(detail.netRentalCash || 0)}</strong> ${divEffect >= 0 ? `− เครดิตภาษีปันผล <strong class="text-emerald-700">${formatNumber(divEffect)}</strong>` : `+ ภาษีปันผล <strong class="text-rose-600">${formatNumber(Math.abs(divEffect))}</strong>`} = ถอนพอร์ตสุทธิ <strong class="text-navy-800 underline">${formatNumber(netWithdrawalYr)} บ./ปี</strong>`
+                        : `<strong>Net Withdrawal Formula (Age ${detail.age} - Option A):</strong> Expense <strong>${formatNumber(grossExpYr)}</strong> − Pension <strong>${formatNumber(pensionYr)}</strong> − Net Rent <strong>${formatNumber(detail.netRentalCash || 0)}</strong> ${divEffect >= 0 ? `− Div Tax Credit <strong class="text-emerald-700">${formatNumber(divEffect)}</strong>` : `+ Div Tax <strong class="text-rose-600">${formatNumber(Math.abs(divEffect))}</strong>`} = Net Withdrawal <strong class="text-navy-800 underline">${formatNumber(netWithdrawalYr)} THB/yr</strong>`;
+                } else {
+                    mathExp.innerHTML = currentLang === 'th'
+                        ? `<strong>สูตรคำนวณยอดถอนพอร์ต (อายุ ${detail.age} ปี - Option B):</strong> รายจ่ายรวม <strong>${formatNumber(grossExpYr)}</strong> − บำนาญ <strong>${formatNumber(pensionYr)}</strong> − ค่าเช่าสุทธิ <strong>${formatNumber(detail.netRentalCash || 0)}</strong> − ปันผลสุทธิหลังภาษี <strong class="text-emerald-700">${formatNumber(divEffect)}</strong> = ถอนพอร์ตสุทธิ <strong class="text-navy-800 underline">${formatNumber(netWithdrawalYr)} บ./ปี</strong>`
+                        : `<strong>Net Withdrawal Formula (Age ${detail.age} - Option B):</strong> Expense <strong>${formatNumber(grossExpYr)}</strong> − Pension <strong>${formatNumber(pensionYr)}</strong> − Net Rent <strong>${formatNumber(detail.netRentalCash || 0)}</strong> − Net Dividend <strong class="text-emerald-700">${formatNumber(divEffect)}</strong> = Net Withdrawal <strong class="text-navy-800 underline">${formatNumber(netWithdrawalYr)} THB/yr</strong>`;
+                }
+            }
+        }
+
+        function updateMainChart() {
+            if (!window.latestSimResults) return;
+            const { currentAge, results } = window.latestSimResults;
+            const showSorr = document.getElementById('showSorrLineCheckbox')?.checked ?? true;
+            const labels = [];
+            for (let i = 0; i <= results.totalChartYears; i++) labels.push(currentAge + i);
+
+            const startCapM = (results.chartStartingCap / 1e6).toFixed(2);
+            const chartNotice = document.getElementById('chartBasisNotice');
+            if (chartNotice) {
+                chartNotice.innerHTML = currentLang === 'th'
+                    ? `<i class="fa-solid fa-circle-info mr-1"></i> กราฟแสดงพอร์ตตั้งต้น: <strong>${startCapM} ล้านบาท</strong> (${simMode === 'actual' ? 'เงินเก็บที่มีจริง' : 'เกณฑ์ Base Plan'})`
+                    : `<i class="fa-solid fa-circle-info mr-1"></i> Initial Portfolio Basis: <strong>${startCapM} Million THB</strong> (${simMode === 'actual' ? 'Actual Savings' : 'Base Plan Basis'})`;
+            }
+
+            const activeSorrBalances = simMode === 'actual' ? results.sorrActual.balances : results.sorrRequired.balances;
+            const withdrawalBars = [0];
+            for (let i = 0; i < results.totalChartYears; i++) {
+                withdrawalBars.push(+(results.netWithdrawals[i] / 1e6).toFixed(3));
+            }
+
+            const datasets = [
+                { type: 'line', label: currentLang === 'th' ? 'มูลค่าพอร์ต (Median)' : 'Portfolio (Median)', data: results.medianLine.map(v => +(v/1e6).toFixed(3)), borderColor: '#163a5f', borderWidth: 2.5, pointRadius: 0, order: 1 },
+                { type: 'line', label: currentLang === 'th' ? 'ขอบบน (95%)' : 'Upper (95%)', data: results.p95Line.map(v => +(v/1e6).toFixed(3)), borderColor: 'rgba(125,211,252,0.6)', borderDash: [3,3], pointRadius: 0, fill: '+1', backgroundColor: 'rgba(186,230,253,0.3)', order: 3 },
+                { type: 'line', label: currentLang === 'th' ? 'ขอบล่าง (5%)' : 'Lower (5%)', data: results.p5Line.map(v => +(v/1e6).toFixed(3)), borderColor: 'rgba(125,211,252,0.6)', borderDash: [3,3], pointRadius: 0, fill: false, order: 4 },
+                { type: 'bar', label: currentLang === 'th' ? 'ถอนสุทธิพอร์ต/ปี' : 'Annual Net Withdrawal', data: withdrawalBars, backgroundColor: 'rgba(253, 224, 71, 0.65)', borderColor: 'rgba(234, 179, 8, 0.8)', borderWidth: 1, borderRadius: 3, barPercentage: 0.65, order: 5 }
+            ];
+
+            if (showSorr) {
+                datasets.push({
+                    type: 'line',
+                    label: currentLang === 'th' ? 'กรณี 5 ปีแรกตลาดแย่ (SORR)' : '5-Yr Bear Market (SORR)',
+                    data: activeSorrBalances.map(v => +(v/1e6).toFixed(3)),
+                    borderColor: '#e11d48',
+                    borderWidth: 2.2,
+                    borderDash: [6, 4],
+                    pointRadius: 0,
+                    order: 2
+                });
+            }
+
+            const ctx = document.getElementById('retirementChart').getContext('2d');
+            if (mainChartInstance) mainChartInstance.destroy();
+
+            mainChartInstance = new Chart(ctx, {
+                data: { labels, datasets },
+                options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+            });
+        }
+
+        function updateDonutChart(prob) {
+            const ctx = document.getElementById('mcDonutChart').getContext('2d');
+            if (donutChartInstance) donutChartInstance.destroy();
+            donutChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: { datasets: [{ data: [prob, 100 - prob], backgroundColor: ['#10b981', '#e2e8f0'], borderWidth: 0, cutout: '74%' }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            });
+        }
+
+        function populateCashflowTable(currentAge, targetAge, results) {
+            const startAgeEl = document.getElementById('tableStartAge');
+            const endAgeEl = document.getElementById('tableEndAge');
+            if (startAgeEl) startAgeEl.textContent = currentAge;
+            if (endAgeEl) endAgeEl.textContent = targetAge;
+
+            const activeBase = simMode === 'actual' ? results.baseDetActual : results.baseDetRequired;
+            const activeSorr = simMode === 'actual' ? results.sorrActual : results.sorrRequired;
+
+            const tbody = document.getElementById('cashflowTableBody');
+            let html = '';
+            for (let t = 1; t <= results.years; t++) {
+                const age = currentAge + t - 1;
+                html += `
+                    <tr class="hover:bg-slate-50">
+                        <td class="py-2 px-2.5 text-center text-slate-500">${t}</td>
+                        <td class="py-2 px-2.5 text-center font-semibold">${age}</td>
+                        <td class="py-2 px-2.5">${formatNumber(results.grossExpenses[t-1])}</td>
+                        <td class="py-2 px-2.5">${formatNumber(results.pensions[t-1])}</td>
+                        <td class="py-2 px-2.5 text-indigo-700">${formatNumber(results.yearlyTaxDetails[t-1].totalGrossSupplemental)}</td>
+                        <td class="py-2 px-2.5">${formatNumber(results.yearlyTaxDetails[t-1].totalTaxBurden)}</td>
+                        <td class="py-2 px-2.5 text-amber-700">${formatNumber(results.netWithdrawals[t-1])}</td>
+                        <td class="py-2 px-2.5 font-bold">${formatNumber(activeBase.balances[t])}</td>
+                        <td class="py-2 px-2.5 font-bold text-rose-600">${formatNumber(activeSorr.balances[t])}</td>
+                    </tr>
+                `;
+            }
+            tbody.innerHTML = html;
+        }
+
+        window.onload = () => runFullSimulation(false);
+    </script>
+</body>
+</html>
